@@ -127,7 +127,7 @@ public class TransformData implements RequestHandler<Request, Response>
 
                 // Add a [Gross Margin] column
                 float percent = Float.parseFloat(row[13])/Float.parseFloat(row[11]);
-                row[15] = Float.toString((float)(Math.round(percent*100)/100));
+                row[15] = Float.toString((float)Math.round(percent*100)/100);
             }
             for (int i = 0; i < row.length; i++)
             {
