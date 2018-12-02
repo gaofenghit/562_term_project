@@ -82,7 +82,6 @@ public class ServiceTP {
         InputStream objectData = s3Object.getObjectContent();
         
         HashSet<String> orderSet = new HashSet();
-//        ArrayList<String> lines = new ArrayList(1800000);
         BufferedReader reader = new BufferedReader(new InputStreamReader(objectData));
         
         int count = 0;
@@ -142,13 +141,22 @@ public class ServiceTP {
                 else if( items[4].equals("C") )
                     sb.append("\'Critical\'");
                 sb.append(",");
-                for(int i=5;i<14;++i) {
-                    sb.append(items[i]);
-                    sb.append(",");
-                }
+
                 try {
                     Date orderdate = fdateFrmat.parse(items[5]);
                     Date shipdate = fdateFrmat.parse(items[7]);
+                    
+                    sb.append((orderdate.getTime()/1000)+",");
+                    sb.append(items[6]);
+                    sb.append(",");
+                    sb.append((shipdate.getTime()/1000)+",");
+                    
+                    for(int i=8;i<14;++i) {
+                        sb.append(items[i]);
+                        sb.append(",");
+                    }
+                                    
+                    
                     int days = (int) ((shipdate.getTime() - orderdate.getTime()) / (1000*3600*24));
                     sb.append(days);
                     sb.append(",");
@@ -161,10 +169,8 @@ public class ServiceTP {
                 
                 if( count % 100000 == 0 )
                     logger.log("    @@@ index: "  + count);
-                
-                if( count == 10 )
-                    logger.log("    ### 10th ins: "  + ins);
-                    
+//                if( count == 10 )
+//                    logger.log("    ### 10th ins: "  + ins);
 
                 ps = con.prepareStatement(ins);
                 ps.execute();
