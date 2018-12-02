@@ -1,1 +1,1 @@
-java -cp ../target/lambda_test-1.0-SNAPSHOT.jar lambda.Hello fred
+java -cp ../target/lambda_test-1.0-SNAPSHOT.jar lambda.HelloSqlite sussie
