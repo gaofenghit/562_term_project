@@ -22,6 +22,7 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.SdkClientException;
 import com.amazonaws.services.s3.model.PutObjectResult;
 import java.io.BufferedReader;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -46,7 +47,45 @@ public class ServiceTP {
 
         //stamp container with uuid
         Response r = reg.StampContainer();
+        ////////////////////////////////////////////////////////////////////////
+        /*
+        setCurrentDirectory("/tmp");
         
+        File file2 = new File("");
+        if( file2.exists() ) {
+            logger.log("    @@@    file exists. name:" + "/tmp/100.csv.db");
+            file2.delete();
+        }
+        else {
+            logger.log("    @@@    file NOT!! exists. create it:" + "/tmp/100.csv.db");
+        }
+        
+        
+        
+        AmazonS3 s3Client2 = AmazonS3ClientBuilder.standard().build();
+        S3Object s3Object2 = null;
+        try {
+            s3Object2 = s3Client2.getObject(new GetObjectRequest("fg.db.files", "100.csv.db"));
+        }
+        catch (SdkClientException e) {
+        }
+        
+        amazonS3Downloading(s3Client2,"fg.db.files", "100.csv.db","/tmp/100.csv.db");
+        
+        file2 = new File("/tmp/100.csv.db");
+        if( file2.exists() ) {
+            logger.log("    @@@2    file exists. name:" + "/tmp/100.csv.db");
+            file2.delete();
+        }
+        else {
+            logger.log("    @@@2    file NOT!! exists. create it:" + "/tmp/100.csv.db");
+        }
+        
+        if(1==1)
+            return r;
+        
+        */
+        ////////////////////////////////////////////////////////////////////////
         setCurrentDirectory("/tmp");
         String bucketname = request.getBucketname();
         String filename = request.getFilename();
@@ -97,7 +136,7 @@ public class ServiceTP {
             String tbs =  "CREATE TABLE mytable ( Region text, "
                         + "Country text, ItemType text, "
                         + "SalesChannel text, OrderPriority text, "
-                        + "OrderDate date, OrderID integer, "
+                        + "OrderDate date, OrderID integer PRIMARY KEY, "
                         + "ShipDate date, UnitsSold integer, "
                         + "UnitPrice float, UnitCost float, "
                         + "TotalRevenue float, TotalCost float, "
@@ -226,4 +265,41 @@ public class ServiceTP {
         AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
         s3Client.putObject("fg.db.files", db_file, file);
     }
+    
+    void amazonS3Downloading(AmazonS3 s3Client,String bucketName,String key,String targetFilePath){
+	S3Object object = s3Client.getObject(new GetObjectRequest(bucketName,key));
+	if(object!=null){
+            System.out.println("Content-Type: " + object.getObjectMetadata().getContentType());
+            InputStream input = null;
+            FileOutputStream fileOutputStream = null;
+            byte[] data = null;
+            try {
+                input=object.getObjectContent();
+                data = new byte[input.available()];
+                int len = 0;
+                fileOutputStream = new FileOutputStream(targetFilePath);
+                while ((len = input.read(data)) != -1) {
+                    fileOutputStream.write(data, 0, len);
+                }
+            } catch (IOException e) {
+                    e.printStackTrace();
+            }finally{
+                if(fileOutputStream!=null){
+                    try {
+                        fileOutputStream.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                if(input!=null){
+                    try {
+                        input.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
+
 }
