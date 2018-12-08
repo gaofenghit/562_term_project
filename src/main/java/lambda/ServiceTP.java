@@ -7,6 +7,7 @@ package lambda;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
+import com.fasterxml.jackson.core.JsonParser;
 import faasinspector.register;
 import java.io.File;
 import java.sql.Connection;
@@ -20,12 +21,19 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.SdkClientException;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectResult;
+import org.json.*;
+import org.json.simple.JSONObject;
+
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -37,86 +45,70 @@ import java.util.HashSet;
  * @author frank
  */
 public class ServiceTP {
+    String m_bucketName;
+    String m_fileName;
+    String m_buckNameMid;
+    String m_fileNameMid;
+    String m_bucketNameDB;
+    String m_fileNameDB;
+    String m_localPath;
+    String m_localFullPath;
+    String m_jdbcName;
+    String m_query;
+    
+    LambdaLogger m_logger;
+    AmazonS3 m_s3Client;
+    
+    void Init(Request request, Context context) {
+        m_bucketName = request.getBucketname();
+        m_fileName = request.getFilename();
+        m_buckNameMid = "fg.tmp.files";
+        m_fileNameMid = m_fileName+".mid.csv";
+        m_bucketNameDB = "fg.db.files";
+        m_fileNameDB = m_fileName+".db";
+        m_localPath = m_fileNameDB;
+        m_localFullPath = "/tmp/"+m_localPath;
+        m_jdbcName = "jdbc:sqlite:"+m_fileNameDB;
+        m_query = request.getQuery();
+        
+        setCurrentDirectory("/tmp");
+        m_logger = context.getLogger();
+        m_s3Client = AmazonS3ClientBuilder.standard().build();
+    }
     // Lambda Function Handler
     public Response handleRequest(Request request, Context context) {
-        // Create logger
-        LambdaLogger logger = context.getLogger();
-        
-        // Register function
-        register reg = new register(logger);
-
-        //stamp container with uuid
+        register reg = new register(m_logger);
         Response r = reg.StampContainer();
-        ////////////////////////////////////////////////////////////////////////
-        /*
-        setCurrentDirectory("/tmp");
+        Init(request, context);
         
-        File file2 = new File("");
-        if( file2.exists() ) {
-            logger.log("    @@@    file exists. name:" + "/tmp/100.csv.db");
-            file2.delete();
-        }
-        else {
-            logger.log("    @@@    file NOT!! exists. create it:" + "/tmp/100.csv.db");
-        }
+        boolean b = Service2();
         
+        r.setValue(b?"true":"false");
         
+        return r;
+    }
+    
+    
+    
+    boolean Service1() {
+        StringBuilder res = new StringBuilder();
         
-        AmazonS3 s3Client2 = AmazonS3ClientBuilder.standard().build();
-        S3Object s3Object2 = null;
-        try {
-            s3Object2 = s3Client2.getObject(new GetObjectRequest("fg.db.files", "100.csv.db"));
-        }
-        catch (SdkClientException e) {
-        }
+        m_logger.log("###: m_bucketName:"+m_bucketName+"   m_fileName:"+m_fileName);
         
-        amazonS3Downloading(s3Client2,"fg.db.files", "100.csv.db","/tmp/100.csv.db");
-        
-        file2 = new File("/tmp/100.csv.db");
-        if( file2.exists() ) {
-            logger.log("    @@@2    file exists. name:" + "/tmp/100.csv.db");
-            file2.delete();
-        }
-        else {
-            logger.log("    @@@2    file NOT!! exists. create it:" + "/tmp/100.csv.db");
-        }
-        
-        if(1==1)
-            return r;
-        
-        */
-        ////////////////////////////////////////////////////////////////////////
-        setCurrentDirectory("/tmp");
-        String bucketname = request.getBucketname();
-        String filename = request.getFilename();
-        logger.log("    @@@    bucketname:" + bucketname + "    filename:"+filename);
-        String db_file = filename+".db";
-        String db_file_full_path = "/tmp/"+filename+".db";
-        String jdbc_name = "jdbc:sqlite:"+filename+".db";
-        File file = new File(db_file_full_path);
-        if( file.exists() ) {
-            logger.log("    @@@    file exists. name:" + db_file_full_path);
-            file.delete();
-        }
-        else {
-            logger.log("    @@@    file NOT!! exists. create it:" + db_file_full_path);
-        }
-        
-        AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
         S3Object s3Object = null;
         try {
-            s3Object = s3Client.getObject(new GetObjectRequest(bucketname, filename));
+            s3Object = m_s3Client.getObject(new GetObjectRequest(m_bucketName, m_fileName));
         }
         catch (SdkClientException e) {
         }
         
         if( s3Object == null ) {
-            logger.log("s3Object is null");
-            return r;
+            m_logger.log("s3Object is null");
+            return false;
         }
         else {
             long file_size = s3Object.getObjectMetadata().getContentLength();
-            logger.log("s3Object is not null, size:"+file_size);
+            m_logger.log("s3Object is not null, size:"+file_size);
         }
         InputStream objectData = s3Object.getObjectContent();
         
@@ -126,37 +118,9 @@ public class ServiceTP {
         int count = 0;
         String line = "";
         StringBuffer sb = new StringBuffer();
-        String ins = "";
         try
         {
-            Connection con = DriverManager.getConnection(jdbc_name); 
-            
-            // Detect if the table 'mytable' exists in the database
-            logger.log("trying to create table 'mytable'");
-            String tbs =  "CREATE TABLE mytable ( Region text, "
-                        + "Country text, ItemType text, "
-                        + "SalesChannel text, OrderPriority text, "
-                        + "OrderDate date, OrderID integer PRIMARY KEY, "
-                        + "ShipDate date, UnitsSold integer, "
-                        + "UnitPrice float, UnitCost float, "
-                        + "TotalRevenue float, TotalCost float, "
-                        + "TotalProfit float, "
-                        + "OrderProcessingTime integer, "
-                        + "GrossMargin float);";
-            
-            PreparedStatement ps = con.prepareStatement(tbs);
-            ps.execute();
-            
-            logger.log("    ### tbs: "  + tbs);
-            
-            ps = con.prepareStatement("PRAGMA synchronous = OFF;");
-            ps.execute();
-            
             SimpleDateFormat fdateFrmat = new SimpleDateFormat("MM/dd/yyyy");
-            
-            ps = con.prepareStatement("begin");
-            ps.execute();
-            ps.close();
             while (true) {
                 line = reader.readLine();
                 if (line == null) break;
@@ -194,7 +158,6 @@ public class ServiceTP {
                         sb.append(items[i]);
                         sb.append(",");
                     }
-                                    
                     
                     int days = (int) ((shipdate.getTime() - orderdate.getTime()) / (1000*3600*24));
                     sb.append(days);
@@ -204,12 +167,88 @@ public class ServiceTP {
                     continue;
                 }
                 sb.append(Float.valueOf(items[13])/Float.valueOf(items[11]));
-                ins = "insert into mytable values(" + sb.toString() + ");";
+                res.append(sb.toString());
+                res.append("\n");
+                count++;
+            }
+        }
+        catch (IOException e) {
+            m_logger.log("Service1 ERROR:" + e.toString());
+            e.printStackTrace();
+            return false;
+        }
+        UploadSB2S3(m_buckNameMid, m_fileNameMid, res);
+        return true;
+    }
+    
+    boolean Service2() {
+        m_logger.log("    @@@    bucketname:" + m_bucketName + "    filename:"+m_fileName);
+        File file = new File(m_localFullPath);
+        if( file.exists() ) {
+            m_logger.log("    @@@    file exists. name:" + m_localFullPath);
+            file.delete();
+        }
+        else {
+            m_logger.log("    @@@    file NOT!! exists. create it:" + m_localFullPath);
+        }
+        
+        S3Object s3Object = null;
+        try {
+            s3Object = m_s3Client.getObject(new GetObjectRequest(m_buckNameMid, m_fileNameMid));
+        }
+        catch (SdkClientException e) {}
+        
+        if( s3Object == null ) {
+            m_logger.log( m_buckNameMid + "/" + m_fileNameMid + "do not exist." );
+            return false;
+        }
+        else {
+            long file_size = s3Object.getObjectMetadata().getContentLength();
+            m_logger.log(m_buckNameMid + "/" + m_fileNameMid + ", file size:"+file_size);
+        }
+        InputStream objectData = s3Object.getObjectContent();
+        
+        BufferedReader reader = new BufferedReader(new InputStreamReader(objectData));
+        
+        int count = 0;
+        String line = "";
+        String ins = "";
+        try
+        {
+            Connection con = DriverManager.getConnection(m_jdbcName);
+            
+            // Detect if the table 'mytable' exists in the database
+            m_logger.log("trying to create table 'mytable'");
+            String tbs =  "CREATE TABLE mytable ( Region text, "
+                        + "Country text, ItemType text, "
+                        + "SalesChannel text, OrderPriority text, "
+                        + "OrderDate date, OrderID integer PRIMARY KEY, "
+                        + "ShipDate date, UnitsSold integer, "
+                        + "UnitPrice float, UnitCost float, "
+                        + "TotalRevenue float, TotalCost float, "
+                        + "TotalProfit float, "
+                        + "OrderProcessingTime integer, "
+                        + "GrossMargin float);";
+            
+            PreparedStatement ps = con.prepareStatement(tbs);
+            ps.execute();
+            
+            m_logger.log("    ### tbs: "  + tbs);
+            
+            ps = con.prepareStatement("PRAGMA synchronous = OFF;");
+            ps.execute();
+            
+            ps = con.prepareStatement("begin");
+            ps.execute();
+            ps.close();
+            while (true) {
+                line = reader.readLine();
+                if (line == null) break;
+                
+                ins = "insert into mytable values(" + line + ");";
                 
                 if( count % 100000 == 0 )
-                    logger.log("    @@@ index: "  + count);
-//                if( count == 10 )
-//                    logger.log("    ### 10th ins: "  + ins);
+                    m_logger.log("    @@@ index: "  + count);
 
                 ps = con.prepareStatement(ins);
                 ps.execute();
@@ -221,23 +260,24 @@ public class ServiceTP {
             ps.execute();
             ps.close();
 
-            logger.log("    @@@ line count: "  + count);
+            m_logger.log("    @@@ line count: "  + count);
             con.close();
             
         }
         catch (IOException | SQLException sqle) {
-            logger.log("count:" + count);
-            logger.log("line:" + line);
-            logger.log("sb:" + sb.toString());
-            logger.log("@@@ ins:"  + ins);
-            logger.log("DB ERROR:" + sqle.toString());
+            m_logger.log("Service2 ERROR:" + sqle.toString());
             sqle.printStackTrace();
-            return r;
+            return false;
         }
-        SaveFile2S3(db_file, logger);
-        logger.log("    @@@ everything finish.");
+        UploadSFile2S3(m_bucketNameDB, m_fileNameDB, m_localFullPath);
+        return true;
+    }
+    
+    String Service3() {
+        JSONObject obj;
+//        obj = new JSONObject("");
         
-        return r;
+        return "";
     }
     
     public static boolean setCurrentDirectory(String directory_name)
@@ -253,20 +293,12 @@ public class ServiceTP {
 
         return result;
     }
-        
-    void SaveFile2S3(String db_file, LambdaLogger logger) {
-        File file = new File("/tmp/"+db_file);
-        if( file.exists() ) {
-            logger.log("    @@@    db file exists. name:" + "/tmp/"+db_file );
-        }
-        else {
-            logger.log("    @@@    db file NOT!! exists. create it:" + "/tmp/"+db_file );
-        }
-        AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
-        s3Client.putObject("fg.db.files", db_file, file);
-    }
+
     
     void amazonS3Downloading(AmazonS3 s3Client,String bucketName,String key,String targetFilePath){
+//        {
+//            S3Object object = s3Client.getObject(new GetObjectRequest(bucketName,key));
+//        }
 	S3Object object = s3Client.getObject(new GetObjectRequest(bucketName,key));
 	if(object!=null){
             System.out.println("Content-Type: " + object.getObjectMetadata().getContentType());
@@ -301,5 +333,26 @@ public class ServiceTP {
             }
         }
     }
+    
+    void UploadSFile2S3(String bucketname, String filename, String localFullPath) {
+        File file = new File(localFullPath);
+        if( file.exists() ) {
+            m_logger.log("    @@@    db file exists. name:" + localFullPath );
+        }
+        else {
+            m_logger.log("    @@@    db file NOT!! exists. create it:" + localFullPath );
+        }
+        AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
+        s3Client.putObject(bucketname, filename, file);
+    }
 
+    void UploadSB2S3(String bucketname, String filename, StringBuilder sw) {
+        byte[] bytes = sw.toString().getBytes(StandardCharsets.UTF_8);
+        InputStream is = new ByteArrayInputStream(bytes);
+        ObjectMetadata meta = new ObjectMetadata();
+        meta.setContentLength(bytes.length);
+        AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
+        s3Client.putObject(bucketname, filename, is, meta);
+    }
+    
 }

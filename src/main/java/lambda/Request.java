@@ -13,6 +13,7 @@ public class Request {
     String name;
     String bucketname;
     String filename;
+    String query;
     public String getName()
     {
         return name;
@@ -40,6 +41,14 @@ public class Request {
     public void setFilename(String name)
     {
         this.filename = name;
+    }
+    public String getQuery()
+    {
+        return query;
+    }
+    public void setQuery(String q)
+    {
+        this.query = q;
     }
     public Request()
     {
