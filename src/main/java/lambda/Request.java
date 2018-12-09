@@ -13,7 +13,10 @@ public class Request {
     String name;
     String bucketname;
     String filename;
-    String query;
+    String aggregation;
+    String filter;
+    String flag;
+    
     public String getName()
     {
         return name;
@@ -42,14 +45,31 @@ public class Request {
     {
         this.filename = name;
     }
-    public String getQuery()
+    public String getAggregation()
     {
-        return query;
+        return aggregation;
     }
-    public void setQuery(String q)
+    public void setAggregation(String q)
     {
-        this.query = q;
+        this.aggregation = q;
     }
+    public String getFilter()
+    {
+        return filter;
+    }
+    public void setFilter(String q)
+    {
+        this.filter = q;
+    }
+    public String getFlag()
+    {
+        return flag;
+    }
+    public void setflag(String q)
+    {
+        this.flag = q;
+    }
+    
     public Request()
     {
         

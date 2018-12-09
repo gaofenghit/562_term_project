@@ -23,12 +23,14 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.SdkClientException;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectResult;
+//import org.json.simple.JSONObject;
 import org.json.*;
-import org.json.simple.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -47,14 +49,16 @@ import java.util.HashSet;
 public class ServiceTP {
     String m_bucketName;
     String m_fileName;
-    String m_buckNameMid;
+    String m_fileNameLocal;
+    String m_bucketNameMid;
     String m_fileNameMid;
     String m_bucketNameDB;
     String m_fileNameDB;
     String m_localPath;
     String m_localFullPath;
     String m_jdbcName;
-    String m_query;
+    String m_aggregation;
+    String m_filter;
     
     LambdaLogger m_logger;
     AmazonS3 m_s3Client;
@@ -62,14 +66,16 @@ public class ServiceTP {
     void Init(Request request, Context context) {
         m_bucketName = request.getBucketname();
         m_fileName = request.getFilename();
-        m_buckNameMid = "fg.tmp.files";
+        m_fileNameLocal = "/tmp/"+m_fileName+".mid.csv";;
+        m_bucketNameMid = "fg.tmp.files";
         m_fileNameMid = m_fileName+".mid.csv";
         m_bucketNameDB = "fg.db.files";
         m_fileNameDB = m_fileName+".db";
         m_localPath = m_fileNameDB;
         m_localFullPath = "/tmp/"+m_localPath;
         m_jdbcName = "jdbc:sqlite:"+m_fileNameDB;
-        m_query = request.getQuery();
+        m_aggregation = request.getAggregation();
+        m_filter = request.getFilter();
         
         setCurrentDirectory("/tmp");
         m_logger = context.getLogger();
@@ -80,14 +86,52 @@ public class ServiceTP {
         register reg = new register(m_logger);
         Response r = reg.StampContainer();
         Init(request, context);
-        
-        boolean b = Service2();
-        
-        r.setValue(b?"true":"false");
+        String flag = request.getFlag();
+        if( flag.equals("1") ) {
+            boolean b = Service1();
+            r.setValue(b?"true":"false");
+        }
+        else if( flag.equals("2") ) {
+            boolean b = Service2();
+            r.setValue(b?"true":"false");
+        }
+        else if( flag.equals("3") ) {
+            String res = Service3();
+            r.setValue(res);
+        }
+        else{
+            r.setValue("false");
+        }
         
         return r;
     }
     
+    public Response handleRequest1(Request request, Context context) {
+        register reg = new register(m_logger);
+        Response r = reg.StampContainer();
+        Init(request, context);
+        boolean b = Service1();
+        r.setValue(b?"true":"false");
+        return r;
+    }
+    
+    public Response handleRequest2(Request request, Context context) {
+        register reg = new register(m_logger);
+        Response r = reg.StampContainer();
+        Init(request, context);
+        boolean b = Service2();
+        r.setValue(b?"true":"false");
+        return r;
+    }
+    
+    public Response handleRequest3(Request request, Context context) {
+        register reg = new register(m_logger);
+        Response r = reg.StampContainer();
+        Init(request, context);
+        String res = Service3();
+        r.setValue(res);
+        return r;
+    }
     
     
     boolean Service1() {
@@ -115,14 +159,23 @@ public class ServiceTP {
         HashSet<String> orderSet = new HashSet();
         BufferedReader reader = new BufferedReader(new InputStreamReader(objectData));
         
+        
         int count = 0;
         String line = "";
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         try
         {
+            long t1 = System.currentTimeMillis();
+            File localFile = new File(m_fileNameLocal);
+            BufferedWriter bw = new BufferedWriter(new FileWriter(localFile));
+            
             SimpleDateFormat fdateFrmat = new SimpleDateFormat("MM/dd/yyyy");
             while (true) {
                 line = reader.readLine();
+                if( count==0 ) {
+                    count++;
+                    continue;
+                }
                 if (line == null) break;
                 line=line.replace("\'", "\'\'");
                 String[] items = line.split(",");
@@ -130,7 +183,7 @@ public class ServiceTP {
                     continue;
                 }
                 orderSet.add(items[6]);
-                sb.setLength(0);
+                
                 for(int i=0;i<4;++i) {
                     sb.append("\'"+items[i]);
                     sb.append("\',");
@@ -167,17 +220,27 @@ public class ServiceTP {
                     continue;
                 }
                 sb.append(Float.valueOf(items[13])/Float.valueOf(items[11]));
-                res.append(sb.toString());
-                res.append("\n");
+                sb.append("\n");
                 count++;
+                if( count%10000 == 0 ) {
+                    bw.write(sb.toString());
+                    sb.setLength(0);
+                }
+                
             }
+            bw.write(sb.toString());
+            bw.close();
+            long t2 = System.currentTimeMillis();
+            
+            m_logger.log("parse content use time:" + (t2-t1));
         }
         catch (IOException e) {
             m_logger.log("Service1 ERROR:" + e.toString());
             e.printStackTrace();
             return false;
         }
-        UploadSB2S3(m_buckNameMid, m_fileNameMid, res);
+        
+        UploadSFile2S3(m_bucketNameMid, m_fileNameMid, m_fileNameLocal);
         return true;
     }
     
@@ -194,17 +257,17 @@ public class ServiceTP {
         
         S3Object s3Object = null;
         try {
-            s3Object = m_s3Client.getObject(new GetObjectRequest(m_buckNameMid, m_fileNameMid));
+            s3Object = m_s3Client.getObject(new GetObjectRequest(m_bucketNameMid, m_fileNameMid));
         }
         catch (SdkClientException e) {}
         
         if( s3Object == null ) {
-            m_logger.log( m_buckNameMid + "/" + m_fileNameMid + "do not exist." );
+            m_logger.log(m_bucketNameMid + "/" + m_fileNameMid + "do not exist." );
             return false;
         }
         else {
             long file_size = s3Object.getObjectMetadata().getContentLength();
-            m_logger.log(m_buckNameMid + "/" + m_fileNameMid + ", file size:"+file_size);
+            m_logger.log(m_bucketNameMid + "/" + m_fileNameMid + ", file size:"+file_size);
         }
         InputStream objectData = s3Object.getObjectContent();
         
@@ -267,6 +330,7 @@ public class ServiceTP {
         catch (IOException | SQLException sqle) {
             m_logger.log("Service2 ERROR:" + sqle.toString());
             sqle.printStackTrace();
+            m_logger.log("ins:" + ins);
             return false;
         }
         UploadSFile2S3(m_bucketNameDB, m_fileNameDB, m_localFullPath);
@@ -274,10 +338,50 @@ public class ServiceTP {
     }
     
     String Service3() {
-        JSONObject obj;
-//        obj = new JSONObject("");
+//        JSONObject obj = new JSONObject("{dsf}");
+//        m_logger.log("    @@@ json:"  + m_aggregation);
+        long t1 = System.currentTimeMillis();
+        amazonS3Downloading(m_bucketNameDB, m_fileNameDB, m_localFullPath);
+        long t2 = System.currentTimeMillis();
+        m_logger.log("amazonS3Downloading use time:" + (t2-t1));
         
-        return "";
+        String[] items = m_aggregation.split(",");
+        int itemNum = items.length;
+        
+        String ql = "select " + m_aggregation + " from mytable where " + m_filter+";";
+        m_logger.log("### ql:" + ql);
+        StringBuilder sb = new StringBuilder();
+        
+        try
+        {
+            Connection con = DriverManager.getConnection(m_jdbcName);
+            
+            PreparedStatement ps = con.prepareStatement(ql);
+            ResultSet rs = ps.executeQuery();
+            LinkedList<String> ll = new LinkedList<String>();
+            int index=1;
+            
+            if (rs.next())
+            {
+                while( index<=itemNum ) {
+                    sb.append(rs.getString(index));
+                    if( index < itemNum )
+                        sb.append(",");
+                    index++;
+                }
+            }
+            rs.close();
+            
+            
+            m_logger.log("######### sb:" + sb.toString());
+        }
+        catch (SQLException sqle) {
+            m_logger.log("Service2 ERROR:" + sqle.toString());
+            sqle.printStackTrace();
+            return "";
+        }
+        
+        return sb.toString();
     }
     
     public static boolean setCurrentDirectory(String directory_name)
@@ -295,46 +399,14 @@ public class ServiceTP {
     }
 
     
-    void amazonS3Downloading(AmazonS3 s3Client,String bucketName,String key,String targetFilePath){
-//        {
-//            S3Object object = s3Client.getObject(new GetObjectRequest(bucketName,key));
-//        }
-	S3Object object = s3Client.getObject(new GetObjectRequest(bucketName,key));
-	if(object!=null){
-            System.out.println("Content-Type: " + object.getObjectMetadata().getContentType());
-            InputStream input = null;
-            FileOutputStream fileOutputStream = null;
-            byte[] data = null;
-            try {
-                input=object.getObjectContent();
-                data = new byte[input.available()];
-                int len = 0;
-                fileOutputStream = new FileOutputStream(targetFilePath);
-                while ((len = input.read(data)) != -1) {
-                    fileOutputStream.write(data, 0, len);
-                }
-            } catch (IOException e) {
-                    e.printStackTrace();
-            }finally{
-                if(fileOutputStream!=null){
-                    try {
-                        fileOutputStream.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-                if(input!=null){
-                    try {
-                        input.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
+    void amazonS3Downloading(String bucketName,String key,String targetFilePath){
+        File file=new File(targetFilePath);
+        if( !file.exists() )
+            m_s3Client.getObject(new GetObjectRequest(bucketName,key), file);
     }
     
     void UploadSFile2S3(String bucketname, String filename, String localFullPath) {
+        long t1 = System.currentTimeMillis();
         File file = new File(localFullPath);
         if( file.exists() ) {
             m_logger.log("    @@@    db file exists. name:" + localFullPath );
@@ -344,10 +416,12 @@ public class ServiceTP {
         }
         AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
         s3Client.putObject(bucketname, filename, file);
+        long t2 = System.currentTimeMillis();
+        m_logger.log("######### upload time:" + (t2-t1)/1000 + "   file:"+localFullPath);
     }
 
     void UploadSB2S3(String bucketname, String filename, StringBuilder sw) {
-        byte[] bytes = sw.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = sw.toString().getBytes();//.getBytes(StandardCharsets.UTF_8);
         InputStream is = new ByteArrayInputStream(bytes);
         ObjectMetadata meta = new ObjectMetadata();
         meta.setContentLength(bytes.length);

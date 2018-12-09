@@ -23,6 +23,7 @@ public class Response extends fiResponse {
 
     // Return value
     private String value;
+    String throughput;
     public String getValue()
     {
         return value;
@@ -40,6 +41,15 @@ public class Response extends fiResponse {
     public void setNames(List<String> names)
     {
         this.names = names;
+    }
+    
+    public String getThroughput()
+    {
+        return throughput;
+    }
+    public void setThroughput(String q)
+    {
+        this.throughput = q;
     }
 
     @Override
