@@ -22,18 +22,18 @@ filter=${filter//\ /\\u0020}
 json={"\"flag\"":"\"1\"","\"bucketname\"":\"${bucketname}\"","\"filename\"":\"${filename}\"","\"aggregation\"":"\"$agg\"","\"filter\"":"\"$filter\""}
 #echo $json
 output=`time curl -s -H "Content-Type: application/json" -X POST -d $json https://g661do5ulb.execute-api.us-east-1.amazonaws.com/test_fp_a | jq -r ".value"`
-echo "A:$output"
+echo "Service A complete: $output"
 
 
 json={"\"flag\"":"\"2\"","\"bucketname\"":\"${bucketname}\"","\"filename\"":\"${filename}\"","\"aggregation\"":"\"$agg\"","\"filter\"":"\"$filter\""}
 #echo $json
 output=`time curl -s -H "Content-Type: application/json" -X POST -d $json https://y8xah03i20.execute-api.us-east-1.amazonaws.com/test_fp_b | jq -r ".value"`
-echo "B:$output"
+echo "Service B complete: $output"
 
 json={"\"flag\"":"\"3\"","\"bucketname\"":\"${bucketname}\"","\"filename\"":\"${filename}\"","\"aggregation\"":"\"$agg\"","\"filter\"":"\"$filter\""}
 #echo "C:$json"
 output=`time curl -s -H "Content-Type: application/json" -X POST -d $json https://2j2q8411bk.execute-api.us-east-1.amazonaws.com/test_fp_c | jq -r ".value"`
-echo "C:$output"
+echo "Service C result: $output"
 
 
 
