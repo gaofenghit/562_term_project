@@ -36,6 +36,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.DecimalFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -78,6 +79,7 @@ public class ServiceTP {
         m_filter = request.getFilter();
         
         setCurrentDirectory("/tmp");
+//        deleteDir("/tmp/");
         m_logger = context.getLogger();
         m_s3Client = AmazonS3ClientBuilder.standard().build();
     }
@@ -300,6 +302,7 @@ public class ServiceTP {
             
             ps = con.prepareStatement("PRAGMA synchronous = OFF;");
             ps.execute();
+            ps.close();
             
             ps = con.prepareStatement("begin");
             ps.execute();
@@ -322,7 +325,7 @@ public class ServiceTP {
             ps = con.prepareStatement("commit");
             ps.execute();
             ps.close();
-
+            
             m_logger.log("    @@@ line count: "  + count);
             con.close();
             
@@ -347,8 +350,21 @@ public class ServiceTP {
         
         String[] items = m_aggregation.split(",");
         int itemNum = items.length;
+        boolean[] hasPercent = new boolean[itemNum];
+        boolean[] hasInDays = new boolean[itemNum];
         
-        String ql = "select " + m_aggregation + " from mytable where " + m_filter+";";
+        String agg = "";
+        for(int i=0;i<itemNum;++i) {
+            hasPercent[i] = (items[i].indexOf("in percent") > 0);
+            hasInDays[i] = (items[i].indexOf("in days") > 0);
+            items[i] = items[i].replace("in percent", "");
+            items[i] = items[i].replace("in days", "");
+            agg = agg + items[i];
+            if (i != itemNum-1)
+                agg = agg + ", ";
+        }
+        
+        String ql = "select " + agg + " from mytable where " + m_filter+";";
         m_logger.log("### ql:" + ql);
         StringBuilder sb = new StringBuilder();
         
@@ -364,9 +380,20 @@ public class ServiceTP {
             if (rs.next())
             {
                 while( index<=itemNum ) {
-                    sb.append(rs.getString(index));
+                    String ori = rs.getString(index);
+                    String cur = ori;
+                    if( hasPercent[index-1] ) {
+                        double v = Double.valueOf(ori);
+                        DecimalFormat df = new DecimalFormat("#.00");
+                        cur = df.format(v*100)+"%";
+                    }
+                    else if( hasInDays[index-1] ) {
+                        double v = Double.valueOf(ori);
+                        cur = String.valueOf(Integer.valueOf((int)v));
+                    }
+                    sb.append(cur);
                     if( index < itemNum )
-                        sb.append(",");
+                        sb.append(", ");
                     index++;
                 }
             }
@@ -428,5 +455,21 @@ public class ServiceTP {
         AmazonS3 s3Client = AmazonS3ClientBuilder.standard().build();
         s3Client.putObject(bucketname, filename, is, meta);
     }
+    
+    boolean deleteDir(String path){
+        File file = new File(path);
+        if(!file.exists()){
+            return false;
+        }
+        String[] content = file.list();
+        for(String name : content){
+            File temp = new File(path, name);
+            if(temp.isDirectory())
+                deleteDir(temp.getAbsolutePath());
+            temp.delete();
+        }
+        return true;
+    }
+
     
 }
